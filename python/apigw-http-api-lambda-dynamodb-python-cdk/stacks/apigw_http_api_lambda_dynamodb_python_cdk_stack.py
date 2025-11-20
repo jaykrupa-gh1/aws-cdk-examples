@@ -33,7 +33,7 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             ],
         )
         
-        # Create VPC endpoint
+        # Create VPC endpoint for DynamoDB
         dynamo_db_endpoint = ec2.GatewayVpcEndpoint(
             self,
             "DynamoDBVpce",
@@ -56,6 +56,17 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
                 "dynamodb:PutItem"],
                 resources=["*"],
             )
+        )
+
+        # Create VPC endpoint for X-Ray
+        xray_endpoint = ec2.InterfaceVpcEndpoint(
+            self,
+            "XRayVpce",
+            service=ec2.InterfaceVpcEndpointAwsService.XRAY,
+            vpc=vpc,
+            subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
+            ),
         )
 
         # Create DynamoDb Table
@@ -81,15 +92,19 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             ),
             memory_size=1024,
             timeout=Duration.minutes(5),
+            tracing=lambda_.Tracing.ACTIVE,
         )
 
         # grant permission to lambda to write to demo table
         demo_table.grant_write_data(api_hanlder)
         api_hanlder.add_environment("TABLE_NAME", demo_table.table_name)
 
-        # Create API Gateway
+        # Create API Gateway with X-Ray tracing enabled
         apigw_.LambdaRestApi(
             self,
             "Endpoint",
             handler=api_hanlder,
+            deploy_options=apigw_.StageOptions(
+                tracing_enabled=True,
+            ),
         )
