@@ -7,6 +7,7 @@ from aws_xray_sdk.core import patch_all
 patch_all()
 
 import boto3
+from botocore.exceptions import ClientError
 import os
 import json
 import logging
@@ -85,6 +86,33 @@ def handler(event, context):
                 "statusCode": 200,
                 "headers": {"Content-Type": "application/json"},
                 "body": json.dumps({"message": "Successfully inserted data!"}),
+            }
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ProvisionedThroughputExceededException':
+            logger.warning(json.dumps({
+                "event": "dynamodb_throttled",
+                "request_id": request_id,
+                "table": table,
+            }))
+            return {
+                "statusCode": 429,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Retry-After": "5"
+                },
+                "body": json.dumps({"message": "Too many requests, please retry later"}),
+            }
+        else:
+            logger.error(json.dumps({
+                "event": "dynamodb_error",
+                "request_id": request_id,
+                "error_code": e.response['Error']['Code'],
+                "error_message": e.response['Error']['Message'],
+            }))
+            return {
+                "statusCode": 500,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"message": "Internal server error"}),
             }
     except Exception as e:
         logger.error(json.dumps({
