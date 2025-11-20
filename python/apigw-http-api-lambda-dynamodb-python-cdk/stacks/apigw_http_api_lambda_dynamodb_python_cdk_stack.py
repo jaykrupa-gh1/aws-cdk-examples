@@ -11,6 +11,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_logs as logs,
     aws_cloudwatch as cloudwatch,
+    aws_wafv2 as wafv2,
     Duration,
 )
 from constructs import Construct
@@ -144,8 +145,55 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             retention=logs.RetentionDays.ONE_YEAR,
         )
 
+        # Create WAF Web ACL with rate-based rules
+        web_acl = wafv2.CfnWebACL(
+            self,
+            "ApiWebAcl",
+            scope="REGIONAL",
+            default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
+            visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                cloud_watch_metrics_enabled=True,
+                metric_name="ApiWebAclMetrics",
+                sampled_requests_enabled=True
+            ),
+            rules=[
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitRule",
+                    priority=1,
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
+                            limit=2000,
+                            aggregate_key_type="IP"
+                        )
+                    ),
+                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
+                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                        cloud_watch_metrics_enabled=True,
+                        metric_name="RateLimitRuleMetrics",
+                        sampled_requests_enabled=True
+                    )
+                ),
+                wafv2.CfnWebACL.RuleProperty(
+                    name="AWSManagedRulesCommonRuleSet",
+                    priority=2,
+                    override_action=wafv2.CfnWebACL.OverrideActionProperty(none={}),
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        managed_rule_group_statement=wafv2.CfnWebACL.ManagedRuleGroupStatementProperty(
+                            vendor_name="AWS",
+                            name="AWSManagedRulesCommonRuleSet"
+                        )
+                    ),
+                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                        cloud_watch_metrics_enabled=True,
+                        metric_name="AWSManagedRulesCommonRuleSetMetrics",
+                        sampled_requests_enabled=True
+                    )
+                )
+            ]
+        )
+
         # Create API Gateway with X-Ray tracing, access logging, and throttling enabled
-        apigw_.LambdaRestApi(
+        api = apigw_.LambdaRestApi(
             self,
             "Endpoint",
             handler=api_hanlder,
@@ -166,4 +214,12 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
                     user=True,
                 ),
             ),
+        )
+
+        # Associate WAF with API Gateway stage
+        wafv2.CfnWebACLAssociation(
+            self,
+            "WebAclAssociation",
+            resource_arn=f"arn:aws:apigateway:{self.region}::/restapis/{api.rest_api_id}/stages/{api.deployment_stage.stage_name}",
+            web_acl_arn=web_acl.attr_arn
         )
