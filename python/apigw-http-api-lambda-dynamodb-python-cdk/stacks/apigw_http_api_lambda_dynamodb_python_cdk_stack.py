@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_iam as iam,
     aws_logs as logs,
+    aws_cloudwatch as cloudwatch,
     Duration,
 )
 from constructs import Construct
@@ -93,7 +94,7 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             point_in_time_recovery=True,
         )
 
-        # Create the Lambda function with log retention
+        # Create the Lambda function with log retention and reserved concurrency
         api_hanlder = lambda_.Function(
             self,
             "ApiHandler",
@@ -109,11 +110,32 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             timeout=Duration.minutes(5),
             tracing=lambda_.Tracing.ACTIVE,
             log_retention=logs.RetentionDays.ONE_YEAR,
+            reserved_concurrent_executions=100,
         )
 
         # grant permission to lambda to write to demo table
         demo_table.grant_write_data(api_hanlder)
         api_hanlder.add_environment("TABLE_NAME", demo_table.table_name)
+
+        # CloudWatch alarm for concurrent executions approaching limit
+        cloudwatch.Alarm(
+            self,
+            "LambdaConcurrencyAlarm",
+            metric=api_hanlder.metric_concurrent_executions(),
+            threshold=80,
+            evaluation_periods=2,
+            alarm_description="Lambda concurrent executions approaching reserved limit (80/100)"
+        )
+
+        # CloudWatch alarm for throttled invocations
+        cloudwatch.Alarm(
+            self,
+            "LambdaThrottlesAlarm",
+            metric=api_hanlder.metric_throttles(),
+            threshold=10,
+            evaluation_periods=1,
+            alarm_description="Lambda function is being throttled"
+        )
 
         # Create log group for API Gateway access logs
         api_log_group = logs.LogGroup(
