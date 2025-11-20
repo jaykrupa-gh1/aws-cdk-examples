@@ -144,11 +144,14 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             retention=logs.RetentionDays.ONE_YEAR,
         )
 
-        # Create API Gateway with X-Ray tracing, access logging, and throttling enabled
-        apigw_.LambdaRestApi(
+        # Create API Gateway with X-Ray tracing, access logging, throttling, and API key requirement
+        api = apigw_.LambdaRestApi(
             self,
             "Endpoint",
             handler=api_hanlder,
+            default_method_options=apigw_.MethodOptions(
+                api_key_required=True
+            ),
             deploy_options=apigw_.StageOptions(
                 throttling_rate_limit=100,
                 throttling_burst_limit=200,
@@ -167,3 +170,26 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
                 ),
             ),
         )
+
+        # Create usage plan with per-client throttling and quota
+        usage_plan = api.add_usage_plan(
+            "UsagePlan",
+            name="StandardUsagePlan",
+            throttle=apigw_.ThrottleSettings(
+                rate_limit=50,
+                burst_limit=100
+            ),
+            quota=apigw_.QuotaSettings(
+                limit=10000,
+                period=apigw_.Period.DAY
+            )
+        )
+
+        # Create API key
+        api_key = api.add_api_key("ApiKey", api_key_name="DefaultApiKey")
+
+        # Associate API key with usage plan
+        usage_plan.add_api_key(api_key)
+
+        # Add API stage to usage plan
+        usage_plan.add_api_stage(stage=api.deployment_stage)
