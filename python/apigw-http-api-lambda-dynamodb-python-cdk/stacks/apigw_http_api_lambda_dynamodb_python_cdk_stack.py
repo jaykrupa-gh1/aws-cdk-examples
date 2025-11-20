@@ -144,12 +144,14 @@ class ApigwHttpApiLambdaDynamodbPythonCdkStack(Stack):
             retention=logs.RetentionDays.ONE_YEAR,
         )
 
-        # Create API Gateway with X-Ray tracing and access logging enabled
+        # Create API Gateway with X-Ray tracing, access logging, and throttling enabled
         apigw_.LambdaRestApi(
             self,
             "Endpoint",
             handler=api_hanlder,
             deploy_options=apigw_.StageOptions(
+                throttling_rate_limit=100,
+                throttling_burst_limit=200,
                 tracing_enabled=True,
                 access_log_destination=apigw_.LogGroupLogDestination(api_log_group),
                 access_log_format=apigw_.AccessLogFormat.json_with_standard_fields(
